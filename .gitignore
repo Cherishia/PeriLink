@@ -1,0 +1,11 @@
+*.exe
+*.pdb
+*.user
+*.zip
+LinkScope.refresh*
+LinkScope.ui*
+LinkScope.readings*
+LinkScope.profiles*
+bin/
+obj/
+.vs/
