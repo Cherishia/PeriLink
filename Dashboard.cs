@@ -103,7 +103,8 @@ namespace LinkScope
         private readonly Preferences preferences;
         private readonly SavedProfiles savedProfiles;
         private readonly TextBlock title,count,lastUpdate,intervalLabel,brandTitle;
-        private readonly Button refresh,settings,minimize,zoom,closeWindow,github;
+        private readonly Button refresh,settings,minimize,zoom,closeWindow,github,manageDevices;
+        private readonly DashboardDevicePicker devicePicker;
         private readonly RadioButton[] presets=new RadioButton[Intervals.Length];
         private List<Device> devices=new List<Device>();
         private readonly string settingsPath;
@@ -193,6 +194,7 @@ namespace LinkScope
             header.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
             header.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
             header.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
+            header.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
             mark=new BatteryMark {Width=52,Height=52,HorizontalAlignment=HorizontalAlignment.Left,VerticalAlignment=VerticalAlignment.Center};
             header.Children.Add(mark);
             var heading=new StackPanel { VerticalAlignment=VerticalAlignment.Center };
@@ -206,11 +208,16 @@ namespace LinkScope
             refresh.Height=35;
             refresh.Click+=async delegate { await Refresh(); };
             Place(header,refresh,2);
+            manageDevices=ButtonFor("管理设备",Brushes.Transparent,Ink,78);
+            manageDevices.Height=35;
+            manageDevices.Margin=new Thickness(5,0,0,0);
+            manageDevices.Click+=delegate {EditMainCards(!list.CardDrag.Enabled);};
+            Place(header,manageDevices,3);
             settings=ButtonFor("设置",Brushes.Transparent,Ink,64);
             settings.Height=35;
             settings.Margin=new Thickness(6,0,0,0);
             settings.Click+=delegate {OpenSettings();};
-            Place(header,settings,3);
+            Place(header,settings,4);
             hero=new Border {Child=header,CornerRadius=new CornerRadius(23),Margin=new Thickness(3,0,3,12),BorderThickness=new Thickness(1)};
             Action fitHeader=delegate
             {
@@ -218,7 +225,10 @@ namespace LinkScope
                 mark.Width=mark.Height=narrow||shortWindow?40:52;
                 header.ColumnDefinitions[0].Width=new GridLength(narrow?48:63);
                 title.FontSize=narrow||shortWindow?22:27;
-                refresh.Width=settings.Width=narrow?49:64;
+                refresh.Width=settings.Width=narrow?44:64;
+                manageDevices.Width=narrow?47:78;
+                manageDevices.Height=refresh.Height=settings.Height=shortWindow?30:35;
+                LabelManageButton(narrow);
                 header.Margin=shortWindow?new Thickness(13,7,13,7):new Thickness(15,16,15,16);
                 hero.Margin=new Thickness(3,0,3,shortWindow?7:12);
                 count.Visibility=shortWindow?Visibility.Collapsed:Visibility.Visible;
@@ -227,8 +237,14 @@ namespace LinkScope
             hero.SizeChanged+=delegate {fitHeader();};
             root.Children.Add(hero);
 
-            Grid.SetRow(list.Surface,1);
-            root.Children.Add(list.Surface);
+            devicePicker=new DashboardDevicePicker(preferences.ShowsMain,PlaceMainDevice);
+            list.CardDrag.Moved+=MoveMainCard;
+            var deviceArea=new DockPanel();
+            DockPanel.SetDock(devicePicker.Surface,Dock.Top);
+            deviceArea.Children.Add(devicePicker.Surface);
+            deviceArea.Children.Add(list.Surface);
+            Grid.SetRow(deviceArea,1);
+            root.Children.Add(deviceArea);
 
             var footer=new Grid { Margin=new Thickness(12,0,9,0) };
             footer.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
@@ -305,7 +321,12 @@ namespace LinkScope
             hotplug.Interval=TimeSpan.FromMilliseconds(1000);
             hotplug.Tick+=async delegate { hotplug.Stop();await Refresh(); };
             ApplyPreferences();
-            IsVisibleChanged+=delegate { AdjustInterval(); };
+            IsVisibleChanged+=delegate { AdjustInterval();if(!IsVisible) EditMainCards(false); };
+            PreviewKeyDown+=delegate(object sender,System.Windows.Input.KeyEventArgs e)
+            {
+                if(e.Key!=System.Windows.Input.Key.Escape||!list.CardDrag.Enabled) return;
+                EditMainCards(false);e.Handled=true;
+            };
             Loaded+=delegate
             {
                 if(tray!=null) return;
@@ -457,6 +478,8 @@ namespace LinkScope
             hero.BorderBrush=controls.BorderBrush=theme.Line;
             refresh.Background=theme.Tonal;
             refresh.Foreground=settings.Foreground=theme.Ink;
+            manageDevices.Foreground=theme.Ink;
+            manageDevices.Background=list.CardDrag.Enabled?theme.Tonal:theme.Card;
             github.Foreground=theme.Muted;
             settings.Background=theme.Card;
             settings.BorderBrush=theme.Line;
@@ -469,12 +492,53 @@ namespace LinkScope
             segmentFrame.Background=theme.Surface;
             SyncPresets();
             AdjustInterval();
-            list.Update(devices,false);
+            devicePicker.ApplyLook();
+            ShowMainCards(false);
             glass.Apply();
             if(flyout!=null) flyout.ApplyLook();
             if(trayMenu!=null) trayMenu.ApplyLook();
             RefreshFlyout();
             UpdateTray();
+        }
+
+        private void EditMainCards(bool edit)
+        {
+            list.CardDrag.Enable(edit);
+            devicePicker.ShowEditor(edit);
+            LabelManageButton(hero.ActualWidth<410);
+            manageDevices.Background=edit?Preferences.Current.Tonal:Preferences.Current.Card;
+        }
+
+        private void LabelManageButton(bool narrow)
+        {
+            bool editing=list.CardDrag.Enabled;
+            manageDevices.Content=editing?"完成":narrow?"管理":"管理设备";
+            System.Windows.Automation.AutomationProperties.SetName(manageDevices,editing?"结束设备管理":"管理设备");
+        }
+
+        private void PlaceMainDevice(string id,bool visible,string neighbor,bool after)
+        {
+            bool change=preferences.SetMainVisible(id,visible);
+            if(neighbor!=null&&preferences.MoveMain(devices,id,neighbor,after)) change=true;
+            if(!change) return;
+            preferences.Save();
+            ShowMainCards(false);
+        }
+
+        private void MoveMainCard(string from,string target,bool after)
+        {
+            if(!preferences.MoveMain(devices,from,target,after)) return;
+            preferences.Save();
+            ShowMainCards(false);
+        }
+
+        private void ShowMainCards(bool animate)
+        {
+            var cards=preferences.MainCards(devices);
+            if(devices.Count>0)
+                count.Text=cards.Count==devices.Count?devices.Count+" 台电池设备":"显示 "+cards.Count+" / "+devices.Count+" 台设备";
+            list.Update(cards,animate,devices.Count>0&&cards.Count==0);
+            devicePicker.Update(cards,preferences.MainCards(devices,false));
         }
 
         private void RefreshFlyout()
@@ -507,7 +571,7 @@ namespace LinkScope
                     .ThenBy(d=>d.Link=="2.4G" && d.Kind=="鼠标" ? 0 : d.Battery.HasValue ? 1 : 2).ToList();
                 count.Text=devices.Count+" 台电池设备";
                 lastUpdate.Text="扫描于 "+result.At.ToString("HH:mm:ss");
-                list.Update(devices,IsVisible);
+                ShowMainCards(IsVisible);
                 RefreshFlyout();
                 UpdateTray();
             }
@@ -517,7 +581,7 @@ namespace LinkScope
                 {
                     count.Text=devices.Count==0 ? "设备读取失败" : count.Text;
                     lastUpdate.Text="读取失败，点击刷新重试";
-                    list.Update(devices,false);
+                    ShowMainCards(false);
                 }
             }
             finally

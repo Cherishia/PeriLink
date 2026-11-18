@@ -98,6 +98,8 @@ namespace LinkScope
         internal string TrayMonitor;
         internal double? TrayX,TrayY;
         internal List<string> Pins;
+        private List<string> mainOrder=new List<string>();
+        private HashSet<string> mainHidden=new HashSet<string>(StringComparer.Ordinal);
         internal static Look Current=Look.Neutral;
         internal static bool GlassOn=true, PowerSaver;
         internal static int CurrentMaterial=2;
@@ -149,6 +151,8 @@ namespace LinkScope
                             if(int.TryParse(value,out limit)&&limit>=1&&limit<=MaxTrayCards) TrayLimit=limit;
                             break;
                         case "pins": Pins=value.Split(',').Where(x=>x.Length==32).Distinct().Take(MaxTrayCards).ToList();break;
+                        case "main-order": mainOrder=DeviceKeys(value).ToList();break;
+                        case "main-hidden": mainHidden=new HashSet<string>(DeviceKeys(value),StringComparer.Ordinal);break;
                     }
                 }
                 if(CustomColor==null) CustomColor=oldColor;
@@ -194,6 +198,8 @@ namespace LinkScope
                 lines.Add("tray-y="+TrayY.Value.ToString("R",CultureInfo.InvariantCulture));
             }
             if(Pins!=null) lines.Add("pins="+string.Join(",",Pins));
+            if(mainOrder.Count>0) lines.Add("main-order="+string.Join(",",mainOrder));
+            if(mainHidden.Count>0) lines.Add("main-hidden="+string.Join(",",mainHidden.OrderBy(x=>x,StringComparer.Ordinal)));
             try
             {
                 string tmp=path+".tmp";
@@ -222,6 +228,38 @@ namespace LinkScope
         {
             using(var hash=SHA256.Create()) return BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes((ident??"").ToUpperInvariant())),0,16).Replace("-","");
         }
+        private static IEnumerable<string> DeviceKeys(string value)
+        {return value.Split(',').Where(x=>x.Length==32).Distinct(StringComparer.Ordinal);}
+
+        internal bool ShowsMain(string id) {return !mainHidden.Contains(Key(id));}
+
+        internal bool SetMainVisible(string id,bool visible)
+        {return visible?mainHidden.Remove(Key(id)):mainHidden.Add(Key(id));}
+
+        internal IList<Device> MainCards(IList<Device> devices,bool visible=true)
+        {
+            if(visible&&mainOrder.Count==0&&mainHidden.Count==0) return devices;
+            var ranks=mainOrder.Select((key,index)=>new {key,index})
+                .ToDictionary(x=>x.key,x=>x.index,StringComparer.Ordinal);
+            return devices.Select(d=>new {Device=d,Key=Key(d.Id)}).Where(x=>mainHidden.Contains(x.Key)!=visible)
+                .OrderBy(x=>ranks.ContainsKey(x.Key)?ranks[x.Key]:int.MaxValue).Select(x=>x.Device).ToList();
+        }
+
+        internal bool MoveMain(IList<Device> devices,string sourceId,string targetId,bool after)
+        {
+            if(sourceId==targetId) return false;
+            var group=MainCards(devices,ShowsMain(sourceId)).Select(d=>d.Id).ToList();
+            int sourceIndex=group.IndexOf(sourceId),targetIndex=group.IndexOf(targetId);
+            if(sourceIndex<0||targetIndex<0) return false;
+            int insert=targetIndex+(after?1:0)-(sourceIndex<targetIndex?1:0);
+            if(insert==sourceIndex) return false;
+            var order=mainOrder.Concat(devices.Select(d=>Key(d.Id))).Distinct(StringComparer.Ordinal).ToList();
+            order.Remove(Key(sourceId));
+            order.Insert(order.IndexOf(Key(targetId))+(after?1:0),Key(sourceId));
+            mainOrder=order;
+            return true;
+        }
+
         internal IList<Device> Peek(IList<Device> all)
         {
             if(Pins==null) return all.Take(TrayLimit).ToList();

@@ -113,6 +113,7 @@ namespace LinkScope
         private readonly Dictionary<string,BatteryTile> tiles=new Dictionary<string,BatteryTile>(StringComparer.Ordinal);
         internal readonly SmoothScroll View;
         internal readonly FrameworkElement Surface;
+        internal readonly DashboardCardDrag CardDrag;
         private readonly ScrollBar carousel;
         private readonly TextBlock range;
         private readonly DockPanel navigation;
@@ -136,6 +137,8 @@ namespace LinkScope
                 HorizontalScrollBarVisibility=tray?ScrollBarVisibility.Disabled:ScrollBarVisibility.Hidden,
                 PanningMode=tray?PanningMode.VerticalOnly:PanningMode.HorizontalOnly};
             if(tray) {Surface=View;return;}
+            View.FocusVisualStyle=null;
+            CardDrag=new DashboardCardDrag(View,stack,()=>GridLayout);
             var host=new DockPanel {Margin=new Thickness(0,0,0,1)};
             navigation=new DockPanel {LastChildFill=true,Margin=new Thickness(8,2,8,6)};
             range=new TextBlock {FontSize=11.5,MinWidth=47,Foreground=Preferences.Current.Muted,VerticalAlignment=VerticalAlignment.Center};
@@ -204,7 +207,7 @@ namespace LinkScope
             int index=Math.Min(itemCount,1+(int)Math.Round(View.HorizontalOffset/(cardWidth+8)));
             range.Text=scroll?index+" / "+itemCount:"";
         }
-        internal void Update(IList<Device> devices,bool animate)
+        internal void Update(IList<Device> devices,bool animate,bool allHidden=false)
         {
             var theme=Preferences.Current;
             empty.Foreground=theme.Muted;
@@ -242,8 +245,9 @@ namespace LinkScope
                 }
                 tile.Update(d,animate);
             }
+            empty.Text=allHidden?"已隐藏所有设备，可在「管理设备」中恢复。":"暂无电池设备";
             empty.Visibility=devices.Count==0 ? Visibility.Visible : Visibility.Collapsed;
-            if(!compact) SizeCards();
+            if(!compact) {CardDrag.RefreshTiles();SizeCards();}
         }
     }
 
@@ -252,6 +256,7 @@ namespace LinkScope
         private readonly TextBlock name,descriptor,time;
         private readonly PowerText power=new PowerText();
         private readonly Border badge,signalBadge;
+        private readonly Border dropHint;
         private readonly System.Windows.Shapes.Path bolt;
         private readonly PowerStage art=new PowerStage();
         private readonly bool compact;
@@ -259,6 +264,7 @@ namespace LinkScope
         private string iconKind,brand,link;
         private Look oldLook;
         private bool oldGlass;
+        internal string DeviceId {get;private set;}
 
         internal BatteryTile(bool tray)
         {
@@ -307,6 +313,13 @@ namespace LinkScope
             stage.Children.Add(signalBadge);
             Grid.SetColumn(stage,1);
             body.Children.Add(stage);
+            if(!tray)
+            {
+                dropHint=new Border {Width=4,CornerRadius=new CornerRadius(2),Margin=new Thickness(-8,5,-7,5),
+                    Visibility=Visibility.Collapsed,IsHitTestVisible=false};
+                Grid.SetColumnSpan(dropHint,2);
+                body.Children.Add(dropHint);
+            }
             Child=body;
             if(!tray) SizeChanged+=delegate
             {
@@ -334,6 +347,7 @@ namespace LinkScope
 
         internal void Update(Device d,bool animate)
         {
+            DeviceId=d.Id;
             string currentBrand=BrandBadge.Identify(d);
             string category=DeviceArt.Category(d);
             name.Text=BrandBadge.ModelName(d,currentBrand);
@@ -373,6 +387,14 @@ namespace LinkScope
             previous=d.Battery;
             ToolTip=(brand==null?d.Name:brand+" "+name.Text)+" · "+d.Power+" · "+(d.Source??"等待设备上报电量");
             AutomationProperties.SetName(this,d.Name+"，"+category+"，"+d.Link+"，"+state+"，"+d.Power+"，"+time.Text);
+        }
+
+        internal void SetDropHint(bool? after)
+        {
+            dropHint.Visibility=after.HasValue?Visibility.Visible:Visibility.Collapsed;
+            if(!after.HasValue) return;
+            dropHint.Background=Preferences.Current.IconInk;
+            dropHint.HorizontalAlignment=after.Value?HorizontalAlignment.Right:HorizontalAlignment.Left;
         }
 
         private static TextBlock Text(string text,double size,Brush color,FontWeight? weight=null)
