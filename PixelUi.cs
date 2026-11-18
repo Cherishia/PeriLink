@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Markup;
 using System.Windows.Media;
 
 namespace LinkScope
@@ -9,6 +10,19 @@ namespace LinkScope
     {
         internal static readonly FontFamily Numbers=new FontFamily("Cascadia Mono, Consolas, Microsoft YaHei UI");
         internal static readonly Brush Edge=Dashboard.BrushOf("#61776F"), LightEdge=Dashboard.BrushOf("#A4B6AF");
+        internal static readonly Style KeyboardFocus=(Style)XamlReader.Parse(@"
+          <Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+                 xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='{x:Type Control}'>
+            <Setter Property='Template'>
+              <Setter.Value>
+                <ControlTemplate TargetType='{x:Type Control}'>
+                  <Rectangle Margin='1' RadiusX='6' RadiusY='6' StrokeThickness='1'
+                             Stroke='{DynamicResource {x:Static SystemColors.HighlightBrushKey}}'
+                             StrokeDashArray='2,2' SnapsToDevicePixels='True'/>
+                </ControlTemplate>
+              </Setter.Value>
+            </Setter>
+          </Style>");
         internal static Brush Grid(Color color,int pitch=9)
         {
             var tile=new DrawingGroup();

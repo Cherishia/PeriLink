@@ -185,7 +185,6 @@ namespace LinkScope
                 <Setter TargetName='knob' Property='HorizontalAlignment' Value='Right'/>
               </Trigger>
               <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='pill' Property='Opacity' Value='.82'/></Trigger>
-              <Trigger Property='IsKeyboardFocused' Value='True'><Setter TargetName='pill' Property='BorderBrush' Value='{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}'/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>");
 
@@ -195,7 +194,7 @@ namespace LinkScope
             var check=new CheckBox {Content=label,IsChecked=isChecked,FontSize=13.5,Margin=new Thickness(0,1,0,2),
                 Foreground=theme.Ink,Tag=theme.Ink,Background=theme.Tonal,
                 BorderBrush=new SolidColorBrush(Look.Blend(theme.Surface.Color,theme.Ink.Color,.2)),
-                Template=Switch,FocusVisualStyle=null};
+                Template=Switch,FocusVisualStyle=PixelUi.KeyboardFocus};
             if(update!=null)
             {
                 check.Checked+=delegate {update(true);};

@@ -73,10 +73,6 @@ namespace LinkScope
             <ControlTemplate.Triggers>
               <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='frame' Property='Opacity' Value='0.82'/></Trigger>
               <Trigger Property='IsPressed' Value='True'><Setter TargetName='frame' Property='Opacity' Value='0.65'/></Trigger>
-              <Trigger Property='IsKeyboardFocused' Value='True'>
-                <Setter TargetName='frame' Property='BorderBrush' Value='#356A5B'/>
-                <Setter TargetName='frame' Property='BorderThickness' Value='1'/>
-              </Trigger>
               <Trigger Property='IsEnabled' Value='False'><Setter TargetName='frame' Property='Opacity' Value='0.60'/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>");
@@ -88,8 +84,6 @@ namespace LinkScope
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='frame' Property='Background'
-                Value='{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}'/></Trigger>
-              <Trigger Property='IsKeyboardFocused' Value='True'><Setter TargetName='frame' Property='Background'
                 Value='{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}'/></Trigger>
               <Trigger Property='IsPressed' Value='True'><Setter TargetName='frame' Property='Opacity' Value='.67'/></Trigger>
             </ControlTemplate.Triggers>
@@ -248,7 +242,7 @@ namespace LinkScope
                 var option=new RadioButton { GroupName="RefreshInterval",Content=interval+" 秒",Height=30,
                     Template=PixelButton,FontSize=12,FontWeight=FontWeights.SemiBold,Foreground=PrimaryColor,
                     VerticalContentAlignment=VerticalAlignment.Center,HorizontalContentAlignment=HorizontalAlignment.Center,
-                    FocusVisualStyle=null,Margin=new Thickness(2),BorderThickness=new Thickness(0) };
+                    FocusVisualStyle=PixelUi.KeyboardFocus,Margin=new Thickness(2),BorderThickness=new Thickness(0) };
                 option.Checked+=delegate { SelectInterval(interval,true); };
                 presets[i]=option;
                 segment.Children.Add(option);
@@ -265,9 +259,21 @@ namespace LinkScope
             bottom.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             lastUpdate=Text("",11.75,Muted);
             bottom.Children.Add(lastUpdate);
-            github=ButtonFor("GitHub",Brushes.Transparent,Ink,66);
+            github=ButtonFor("",Brushes.Transparent,Muted,68);
             github.Height=24;
+            github.FontWeight=FontWeights.Normal;
+            github.FontSize=11.75;
+            github.Cursor=System.Windows.Input.Cursors.Hand;
+            var githubLabel=new StackPanel {Orientation=Orientation.Horizontal};
+            githubLabel.Children.Add(new TextBlock {Text="GitHub",VerticalAlignment=VerticalAlignment.Center});
+            var externalArrow=DeviceArt.Stroke("M5,19 L19,5 M11,5 H19 V13",Muted,9,1.15);
+            externalArrow.Margin=new Thickness(5,0,0,0);
+            externalArrow.SetBinding(System.Windows.Shapes.Path.StrokeProperty,
+                new System.Windows.Data.Binding("Foreground") {Source=github});
+            githubLabel.Children.Add(externalArrow);
+            github.Content=githubLabel;
             github.ToolTip="在浏览器中打开 PeriLink 的 GitHub 仓库";
+            System.Windows.Automation.AutomationProperties.SetName(github,"GitHub 仓库");
             github.Click+=delegate
             {
                 try
@@ -356,7 +362,7 @@ namespace LinkScope
 
         private static Button ChromeButton(string label,string glyph,Action action,double width=45,double size=11)
         {
-            var button=new Button {Template=CaptionButton,Width=width,ToolTip=label,FocusVisualStyle=null,
+            var button=new Button {Template=CaptionButton,Width=width,ToolTip=label,FocusVisualStyle=PixelUi.KeyboardFocus,
                 Content=DeviceArt.Stroke(glyph,Ink,size,1.35)};
             System.Windows.Automation.AutomationProperties.SetName(button,label);
             button.Click+=delegate {action();};
@@ -451,7 +457,7 @@ namespace LinkScope
             hero.BorderBrush=controls.BorderBrush=theme.Line;
             refresh.Background=theme.Tonal;
             refresh.Foreground=settings.Foreground=theme.Ink;
-            github.Foreground=theme.Ink;
+            github.Foreground=theme.Muted;
             settings.Background=theme.Card;
             settings.BorderBrush=theme.Line;
             settings.BorderThickness=new Thickness(1);
@@ -649,7 +655,7 @@ namespace LinkScope
         internal static Button ButtonFor(string label,Brush background,Brush foreground,double width)
         {
             return new Button { Content=label,Width=width,Template=PixelButton,Background=background,Foreground=foreground,
-                FontWeight=FontWeights.SemiBold,FontSize=12.5,FocusVisualStyle=null,BorderThickness=new Thickness(0) };
+                FontWeight=FontWeights.SemiBold,FontSize=12.5,FocusVisualStyle=PixelUi.KeyboardFocus,BorderThickness=new Thickness(0) };
         }
 
         private static TextBlock Text(string value,double size,Brush color,FontWeight? weight=null)

@@ -155,14 +155,13 @@ namespace LinkScope
 
             internal ColorField(bool strip)
             {
-                hueOnly=strip;Focusable=true;
+                hueOnly=strip;Focusable=true;FocusVisualStyle=PixelUi.KeyboardFocus;
                 hueBrush=Gradient(new Point(0,.5),new Point(1,.5),Colors.Red,Colors.Yellow,Colors.Lime,Colors.Cyan,Colors.Blue,Colors.Magenta,Colors.Red);
                 white=Gradient(new Point(0,.5),new Point(1,.5),Colors.White,Color.FromArgb(0,255,255,255));
                 black=Gradient(new Point(.5,0),new Point(.5,1),Color.FromArgb(0,0,0,0),Colors.Black);
                 MouseLeftButtonDown+=delegate(object s,MouseButtonEventArgs e) {Focus();CaptureMouse();Set(e.GetPosition(this));e.Handled=true;};
                 MouseMove+=delegate(object s,MouseEventArgs e) {if(IsMouseCaptured) Set(e.GetPosition(this));};
                 MouseLeftButtonUp+=delegate {if(IsMouseCaptured) ReleaseMouseCapture();};
-                IsKeyboardFocusedChanged+=delegate {InvalidateVisual();};
                 KeyDown+=Adjust;
             }
 
@@ -182,7 +181,6 @@ namespace LinkScope
                 dc.DrawRectangle(hueOnly?(Brush)hueBrush:main,null,r);
                 if(!hueOnly) {dc.DrawRectangle(white,null,r);dc.DrawRectangle(black,null,r);}
                 dc.Pop();
-                if(IsKeyboardFocused) dc.DrawRoundedRectangle(null,new Pen(Dashboard.BrushOf("#780A423A"),1),r,7,7);
                 var center=new Point(r.X+marker.X*r.Width,r.Y+marker.Y*r.Height);
                 dc.DrawEllipse(null,new Pen(Dashboard.BrushOf("#71000000"),3.5),center,6,6);
                 dc.DrawEllipse(hueOnly?Brushes.White:null,new Pen(Brushes.White,2),center,5.5,5.5);

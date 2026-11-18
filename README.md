@@ -1,8 +1,8 @@
 # PeriLink · 外设电量
 
-Windows 10/11 便携版。打开 `PeriLink-17.exe` 查看已识别的电池设备。普通有线供电设备会隐藏，尚未上报电量的已识别无线外设显示短横线。
+Windows 10/11 便携版。打开 `PeriLink.exe` 查看已识别的电池设备。普通有线供电设备会隐藏，尚未上报电量的已识别无线外设显示短横线。
 
-[下载最新版](https://github.com/Cherishia/PeriLink/releases/latest) · [反馈问题](https://github.com/Cherishia/PeriLink/issues)
+[下载 PeriLink.exe](https://github.com/Cherishia/PeriLink/releases/latest/download/PeriLink.exe) · [版本记录](https://github.com/Cherishia/PeriLink/releases) · [反馈问题](https://github.com/Cherishia/PeriLink/issues)
 
 ![PeriLink 主界面，使用示例设备数据](docs/perilink-main.png)
 

@@ -21,7 +21,6 @@ namespace LinkScope
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='frame' Property='Background' Value='{DynamicResource TrayHover}'/></Trigger>
-              <Trigger Property='IsKeyboardFocused' Value='True'><Setter TargetName='frame' Property='Background' Value='{DynamicResource TrayHover}'/></Trigger>
               <Trigger Property='IsPressed' Value='True'><Setter TargetName='frame' Property='Background' Value='{DynamicResource TrayPressed}'/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>");
@@ -50,7 +49,7 @@ namespace LinkScope
             startupRow.Children.Add(startupStatus);
             startupRow.Children.Add(MenuLabel("开机自启","M12,3 V11 M18,6 A8,8 0 1 1 6,6"));
             startup=new CheckBox {Template=Row,Background=Brushes.Transparent,Content=startupRow,Height=35,
-                FocusVisualStyle=null,ToolTip="登录 Windows 后在托盘启动"};
+                FocusVisualStyle=PixelUi.KeyboardFocus,ToolTip="登录 Windows 后在托盘启动"};
             AutomationProperties.SetName(startup,"开机自启");
             startup.Click+=delegate
             {
@@ -88,7 +87,7 @@ namespace LinkScope
         {
             var group=MenuLabel(label,path);
             group.Margin=new Thickness(11,0,10,0);
-            var row=new Button {Template=Row,Background=Brushes.Transparent,Content=group,Height=35,FocusVisualStyle=null};
+            var row=new Button {Template=Row,Background=Brushes.Transparent,Content=group,Height=35,FocusVisualStyle=PixelUi.KeyboardFocus};
             AutomationProperties.SetName(row,label);
             row.Click+=delegate {Hide();action();};
             items.Add(row);rows.Children.Add(row);
