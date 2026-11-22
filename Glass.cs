@@ -236,6 +236,25 @@ namespace LinkScope
         internal bool SetMainVisible(string id,bool visible)
         {return visible?mainHidden.Remove(Key(id)):mainHidden.Add(Key(id));}
 
+        internal void MergeWiredCard(Device device)
+        {
+            string wired=Key(device.WiredId), receiver=Key(device.Id);
+            bool changed=false;
+            int index=mainOrder.IndexOf(wired);
+            if(index>=0)
+            {
+                if(mainOrder.Contains(receiver)) mainOrder.RemoveAt(index);
+                else mainOrder[index]=receiver;
+                changed=true;
+            }
+            if(Pins!=null && Pins.Contains(wired))
+            {
+                Pins=Pins.Select(key=>key==wired?receiver:key).Distinct(StringComparer.Ordinal).ToList();
+                changed=true;
+            }
+            if(changed) Save();
+        }
+
         internal IList<Device> MainCards(IList<Device> devices,bool visible=true)
         {
             if(visible&&mainOrder.Count==0&&mainHidden.Count==0) return devices;

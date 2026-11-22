@@ -25,6 +25,8 @@ namespace LinkScope
         internal static void Scan(List<Device> devices)
         {
             var rogChannels=new Dictionary<string,RogOmni.Channels>(StringComparer.OrdinalIgnoreCase);
+            bool identifyLogitech=devices.Any(d=>d.Link=="USB" && d.Model!=null && d.Model.StartsWith("046D:",StringComparison.Ordinal) &&
+                (d.Kind=="鼠标" || d.Kind=="键盘")) && devices.Any(d=>d.Link=="2.4G" && Slots(d.Model)>0);
             foreach (string path in HidPaths())
             {
                 string id = Hardware.IdFromPath(path);
@@ -55,10 +57,33 @@ namespace LinkScope
                             var modelMatches=devices.Where(d=>d.Model == model).ToList();
                             if (modelMatches.Select(d=>d.Group).Distinct().Count() == 1) matching=modelMatches;
                         }
-                        if (slots > 0 && page == 0xff00 && (usage == 1 || usage == 2) && U16(caps,4) >= 20 && U16(caps,6) >= 20)
+                        if (model == GameSirBattery.Nova2LiteUsb && group != null && page == 0xff7a &&
+                            U16(caps,4) == 65 && U16(caps,6) == 65)
                         {
-                            ReadReceiver(path, slots, U16(caps,4), U16(caps,6), matching, devices);
+                            var controller = devices.FirstOrDefault(d => d.Group == group && d.Kind == "手柄");
+                            if (controller == null)
+                            {
+                                controller = new Device { Id=group+"/手柄", Group=group, Kind="手柄", Link="USB", Model=model };
+                                devices.Add(controller);
+                            }
+                            controller.Name = "GameSir Nova 2 Lite";
+                            controller.Manufacturer = "GameSir";
+                            controller.BatteryCapable = true;
+                            if (!Tracking.HasBattery(controller)) GameSirBattery.ReadNova2Lite(path, controller);
                             continue;
+                        }
+                        if (page==0xff00 && (usage==1 || usage==2) && U16(caps,4)>=20 && U16(caps,6)>=20)
+                        {
+                            if(slots>0)
+                            {
+                                ReadReceiver(path,slots,U16(caps,4),U16(caps,6),matching,devices,identifyLogitech);
+                                continue;
+                            }
+                            if(identifyLogitech && group!=null && model!=null && model.StartsWith("046D:",StringComparison.Ordinal))
+                                foreach(var device in matching.Where(d=>string.Equals(d.Group,group,StringComparison.OrdinalIgnoreCase) &&
+                                    d.Link=="USB" && d.UnitKey==null &&
+                                    (d.Kind=="鼠标" || d.Kind=="键盘")))
+                                    ReadLogitechWired(path,U16(caps,4),U16(caps,6),device);
                         }
                         if(LunaBattery.ModelName(model)!=null && page>=0xff00 && U16(caps,8)==65)
                         {
@@ -74,14 +99,21 @@ namespace LinkScope
                                 }
                             }
                         }
-                        if (RazerBattery.IsReceiver(model) && U16(caps,8)==91)
+                        if (RogOmni.KeyboardName(model)!=null && page==0xff00 && usage==1 &&
+                            U16(caps,4)==U16(caps,6) && (U16(caps,4)==64 || U16(caps,4)==65))
+                        {
+                            var keyboards=matching.Where(d=>d.Kind=="键盘").ToList();
+                            if(keyboards.Count==1 && !Tracking.HasBattery(keyboards[0])) RogOmni.ApplyDirect(path,U16(caps,4),keyboards[0]);
+                        }
+                        if ((RazerBattery.IsReceiver(model) || RazerBattery.IsWired(model)) && U16(caps,8)==91)
                         {
                             var mouse=matching.Where(d=>d.Kind=="鼠标").ToList();
-                            if (mouse.Count==1 && !mouse[0].Battery.HasValue)
+                            if (mouse.Count==1)
                             {
-                                mouse[0].BatteryCapable=true;
-                                int? percent=RazerBattery.Read(path,model);
-                                if(percent.HasValue) { mouse[0].Battery=percent; mouse[0].Source="Razer 接收器"; }
+                                string family=RazerBattery.WiredModel(model);
+                                bool compareUnit=family!=null && mouse[0].UnitKey==null && devices.Any(d=>d.Kind=="鼠标" &&
+                                    (d.Link=="USB" || d.Link=="2.4G") && d.Link!=mouse[0].Link && RazerBattery.WiredModel(d.Model)==family);
+                                if(!mouse[0].Battery.HasValue || compareUnit) RazerBattery.Apply(path,mouse[0],compareUnit);
                             }
                         }
                         if (matching.Count == 1 && !matching[0].Battery.HasValue)
@@ -118,11 +150,23 @@ namespace LinkScope
             }
         }
 
-        private static void ReadReceiver(string path,int slots,int input,int output,List<Device> matching,List<Device> devices)
+        private static void ReadReceiver(string path,int slots,int input,int output,List<Device> matching,List<Device> devices,bool identify)
         {
             using (var h=Open(path,0xc0000000))
             {
                 if (h.IsInvalid) return;
+                string pairedKind=null;
+                if(identify && slots==1)
+                {
+                    string kind;
+                    string paired=ReadLogitechPair(h,input,output,out kind);
+                    var cards=matching.Where(d=>d.Kind==kind).ToList();
+                    if(paired!=null)
+                    {
+                        pairedKind=kind;
+                        if(cards.Count==1 && cards[0].UnitKey==null) cards[0].UnitKey=paired;
+                    }
+                }
                 var pending=new List<Device>();
                 for (byte slot=1;slot<=slots;slot++)
                 {
@@ -144,7 +188,7 @@ namespace LinkScope
                         }
                     }
                     if (!value.HasValue && grade==null) continue;
-                    string kind="其他", name=null;
+                    string kind=pairedKind??"其他", name=null;
                     byte[] info=Request(h,input,output,slot,0,0,0x00,0x05);
                     if (info!=null && info[4]!=0)
                     {
@@ -165,7 +209,8 @@ namespace LinkScope
                         }
                     }
                     pending.Add(new Device { Id=path+"/slot/"+slot, Group=path, Link="2.4G", Name=string.IsNullOrWhiteSpace(name) ? "罗技接收器 · 槽位 "+slot : name,
-                        Kind=kind,Battery=value,Level=grade,Source="Logitech HID++",Note="接收器查询收到设备回应" });
+                        Kind=kind,Battery=value,Level=grade,Source="Logitech HID++",Note="接收器查询收到设备回应",
+                        UnitKey=identify ? ReadLogitechUnit(h,input,output,slot,null) : null });
                 }
                 foreach (Device d in pending)
                 {
@@ -175,10 +220,86 @@ namespace LinkScope
                         Device match=matches[0];
                         match.Name=d.Name.StartsWith("罗技接收器") ? match.Name : d.Name;
                         match.Battery=d.Battery; match.Level=d.Level; match.Source=d.Source; match.Note=d.Note;
+                        if(d.UnitKey!=null) match.UnitKey=d.UnitKey;
                     }
                     else if (!devices.Any(x=>x.Id==d.Id)) devices.Add(d);
                 }
             }
+        }
+
+        private static void ReadLogitechWired(string path,int input,int output,Device device)
+        {
+            using(var handle=Open(path,0xc0000000))
+            {
+                if(handle.IsInvalid) return;
+                device.UnitKey=ReadLogitechUnit(handle,input,output,0xff,device.Model);
+                if(device.UnitKey==null) return;
+                device.BatteryCapable=true;
+                if(device.Battery.HasValue) return;
+                var feature=Request(handle,input,output,0xff,0,0,0x10,0x04);
+                if(feature!=null && feature[4]!=0)
+                {
+                    var caps=Request(handle,input,output,0xff,feature[4],0);
+                    var status=Request(handle,input,output,0xff,feature[4],1);
+                    if(caps!=null && (caps[5]&2)!=0 && status!=null && status[4]<=100)
+                    {
+                        device.Battery=status[4];
+                        device.Source=status[6]>=1 && status[6]<=3 ? "Logitech HID++ · 充电中" : "Logitech HID++";
+                    }
+                }
+                if(device.Battery.HasValue) return;
+                feature=Request(handle,input,output,0xff,0,0,0x10,0x00);
+                if(feature==null || feature[4]==0) return;
+                var legacy=Request(handle,input,output,0xff,feature[4],0);
+                if(legacy!=null && legacy[4]<=100)
+                {
+                    device.Battery=legacy[4];
+                    device.Source=legacy[6]>=1 && legacy[6]<=3 ? "Logitech HID++ · 充电中" : "Logitech HID++";
+                }
+            }
+        }
+
+        private static string ReadLogitechUnit(SafeFileHandle handle,int input,int output,byte slot,string model)
+        {
+            var feature=Request(handle,input,output,slot,0,0,0x00,0x03);
+            return feature!=null && feature[4]!=0 ?
+                DecodeLogitechUnit(Request(handle,input,output,slot,feature[4],0),model) : null;
+        }
+
+        // HID++ DEVICE_FW_VERSION lists the unit ID and model IDs for each transport.
+        internal static string DecodeLogitechUnit(byte[] reply,string wiredModel)
+        {
+            if(reply==null || reply.Length<17 || reply[0]!=0x11 || (reply[10]&0x04)==0) return null;
+            int wireless=11+((reply[10]&1)!=0?2:0)+((reply[10]&2)!=0?2:0);
+            if(wireless+1>=17) return null;
+            if(wiredModel!=null && ((reply[10]&8)==0 || wireless+3>=17 ||
+                wiredModel!="046D:"+reply[wireless+2].ToString("X2")+reply[wireless+3].ToString("X2"))) return null;
+            return LogitechUnitKey(reply,wireless,reply,5);
+        }
+
+        private static string ReadLogitechPair(SafeFileHandle handle,int input,int output,out string kind)
+        {
+            // The receiver's stored pairing and extended-pairing records can still respond after USB takes over.
+            var pairing=LogitechRegister(handle,input,output,0x20);
+            kind=pairing==null ? null : (pairing[11]&15)==1 ? "键盘" : (pairing[11]&15)==2 ? "鼠标" : null;
+            if(kind==null) return null;
+            var extended=LogitechRegister(handle,input,output,0x30);
+            return extended==null ? null : LogitechUnitKey(pairing,7,extended,5);
+        }
+
+        private static string LogitechUnitKey(byte[] packet,int product,byte[] serial,int start)
+        {
+            string wpid=packet[product].ToString("X2")+packet[product+1].ToString("X2");
+            string unit=BitConverter.ToString(serial,start,4).Replace("-","");
+            return wpid=="0000" || wpid=="FFFF" || unit=="00000000" || unit=="FFFFFFFF" ? null : "046D:"+wpid+"/"+unit;
+        }
+
+        private static byte[] LogitechRegister(SafeFileHandle handle,int input,int output,byte subregister)
+        {
+            var command=new byte[output];
+            command[0]=0x10; command[1]=0xff; command[2]=0x83; command[3]=0xb5; command[4]=subregister;
+            var reply=Exchange(handle,input,command);
+            return reply!=null && reply[0]==0x11 && reply[4]==subregister ? reply : null;
         }
 
         private static byte[] Request(SafeFileHandle h,int input,int output,byte slot,byte feature,int fn,params byte[] parameters)
@@ -186,14 +307,20 @@ namespace LinkScope
             byte[] command=new byte[output];
             command[0]=0x11; command[1]=slot; command[2]=feature; command[3]=(byte)((fn<<4)|0x0D);
             Array.Copy(parameters,0,command,4,parameters.Length);
+            return Exchange(h,input,command);
+        }
+
+        private static byte[] Exchange(SafeFileHandle h,int input,byte[] command)
+        {
             var watch=Stopwatch.StartNew();
             if (!Transfer(h,command,true,100)) return null;
             byte[] response=new byte[input];
             while (watch.ElapsedMilliseconds<125 && Transfer(h,response,false,Math.Max(1,125-(int)watch.ElapsedMilliseconds)))
             {
-                if (response[1]!=slot) continue;
-                if ((response[0]==0x11 || response[0]==0x10) && response[2]==feature && response[3]==command[3]) return response;
-                if ((response[2]==0xff || response[2]==0x8f) && response[3]==feature && response[4]==command[3]) return null;
+                if (response[1]!=command[1]) continue;
+                if ((response[0]==0x11 || response[0]==0x10) && response[2]==command[2] && response[3]==command[3] &&
+                    (command[0]!=0x10 || command[2]!=0x83 || response[4]==command[4])) return response;
+                if ((response[2]==0xff || response[2]==0x8f) && response[3]==command[2] && response[4]==command[3]) return null;
             }
             return null;
         }

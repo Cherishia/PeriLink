@@ -81,7 +81,14 @@ namespace LinkScope
                         continue;
                     }
                     Reading old;
-                    if(!entries.TryGetValue(key,out old)) continue;
+                    entries.TryGetValue(key,out old);
+                    if(d.WiredId!=null)
+                    {
+                        string wiredKey=BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(d.WiredId.ToUpperInvariant()))).Replace("-","");
+                        Reading wired;
+                        if(entries.TryGetValue(wiredKey,out wired) && (old==null || wired.Utc>old.Utc)) old=wired;
+                    }
+                    if(old==null) continue;
                     int percent;
                     if(int.TryParse(old.Value,out percent)) d.Battery=percent;
                     else d.Level=old.Value;

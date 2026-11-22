@@ -40,6 +40,82 @@ namespace LinkScope
                 check("known rechargeable device without a report stays visible",Tracking.Show(new Device{Link="2.4G",Kind="键盘",
                     Model="0B05:1ACE",BatteryCapable=true}));
                 check("0% is displayed as a real reading",Tracking.Show(new Device{Link="USB",Battery=0}));
+                string updateJson="{\"tag_name\":\"v9.8.7\",\"assets\":[{\"name\":\"PeriLink.exe\",\"state\":\"uploaded\",\"size\":640,"+
+                    "\"browser_download_url\":\""+Dashboard.RepositoryUrl+"/releases/download/v9.8.7/PeriLink.exe\",\"digest\":\"sha256:"+new string('a',64)+"\"}]}";
+                var update=AppUpdates.ReadRelease(updateJson,new Version(9,8,6,0));
+                check("updater accepts the newer official release with its checksum",update!=null &&
+                    update.Version==new Version(9,8,7,0) && update.Digest==new string('a',64));
+                check("updater ignores the same version and older releases",
+                    AppUpdates.ReadRelease(updateJson,new Version(9,8,7,0))==null &&
+                    AppUpdates.ReadRelease(updateJson,new Version(9,8,8,0))==null);
+                bool rejectedUpdate=false;
+                try {AppUpdates.ReadRelease(updateJson.Replace("github.com","example.invalid"),new Version(9,8,6,0));}
+                catch(InvalidDataException) {rejectedUpdate=true;}
+                check("updater rejects an executable outside the official release",rejectedUpdate);
+                var wiredLuna=new Device {Id="wired-luna",Model="373E:0054",Kind="鼠标",Link="USB",Battery=100,Name="LunaFury TYPE33"};
+                var radioLuna=new Device {Id="radio-luna",Model="373E:0084",Kind="鼠标",Link="2.4G",Name=wiredLuna.Name};
+                var switched=new List<Device>{radioLuna,wiredLuna};
+                DeviceConnections.PreferWired(switched);
+                check("wired LunaFury replaces an idle receiver with the same card identity",switched.Count==1 &&
+                    switched[0]==wiredLuna && wiredLuna.Id=="radio-luna" && wiredLuna.WiredId=="wired-luna" && wiredLuna.Battery==100);
+                radioLuna.Battery=65;
+                var otherLuna=new Device {Id="another-luna",Model="373E:0054",Kind="鼠标",Link="USB",Battery=72};
+                var twoMice=new List<Device>{radioLuna,otherLuna};
+                DeviceConnections.PreferWired(twoMice);
+                check("separately responding LunaFury devices stay visible",twoMice.Count==2);
+                check("DeathAdder and Basilisk cables match their dedicated receivers",
+                    RazerBattery.WiredModel("1532:00B7")=="1532:00B6" && RazerBattery.WiredModel("1532:00AB")=="1532:00AA" &&
+                    RazerBattery.WiredModel("1532:00B3")==null);
+                var razerWired=new Device {Id="rz-cable",Link="USB",Kind="鼠标",Model="1532:00C0",Battery=55};
+                var razerRadio=new Device {Id="rz-radio",Link="2.4G",Kind="鼠标",Model="1532:00C1",Battery=54};
+                var rzr=new byte[91];
+                System.Text.Encoding.ASCII.GetBytes("TEST00004567").CopyTo(rzr,9);
+                razerWired.UnitKey=RazerBattery.DecodeUnit(razerWired.Model,rzr);
+                System.Text.Encoding.ASCII.GetBytes("TEST00004568").CopyTo(rzr,9);
+                razerRadio.UnitKey=RazerBattery.DecodeUnit(razerRadio.Model,rzr);
+                var razers=new List<Device>{razerWired,razerRadio};
+                razerRadio.Battery=null;
+                DeviceConnections.PreferWired(razers);
+                check("different Razer serials stay separate even when one is idle",razers.Count==2);
+                razerRadio.Battery=54;
+                razerRadio.UnitKey=razerWired.UnitKey;
+                DeviceConnections.PreferWired(razers);
+                check("same Razer serial merges even when both transports report",razerWired.UnitKey!=null && razers.Count==1 &&
+                    razerWired.Id=="rz-radio" && razerWired.Battery==55);
+                var azoth=new Device {Id="azoth-usb",Link="USB",Kind="键盘",Model="0B05:1A83"};
+                var omni=new Device {Id="omni",Link="2.4G",Kind="键盘",Model="0B05:1ACE"};
+                var rogLinks=new List<Device>{azoth,omni};
+                DeviceConnections.PreferWired(rogLinks);
+                check("unidentified shared Omni receiver never merges",rogLinks.Count==2);
+                omni.PairedModel="0B05:1A83";
+                DeviceConnections.PreferWired(rogLinks);
+                check("only confirmed Azoth pairing shares the USB card",rogLinks.Count==1 && rogLinks[0].Id=="omni");
+                var logitechReport=new byte[]{0x11,0xff,7,0x0d,1,0x12,0x34,0x56,0x78,0,0x0c,0x40,0x93,0xc0,0x94,0,0,0,0,0};
+                var logitechWired=new Device {Id="logi-usb",Link="USB",Kind="鼠标",Model="046D:C094",
+                    UnitKey=Receiver.DecodeLogitechUnit(logitechReport,"046D:C094"),Battery=77};
+                var logitechRadio=new Device {Id="logi-wireless",Link="2.4G",Kind="鼠标",Model="046D:C547",UnitKey="046D:4093/87654321"};
+                var logitechLinks=new List<Device>{logitechWired,logitechRadio};
+                DeviceConnections.PreferWired(logitechLinks);
+                check("different Logitech unit IDs keep two cards",logitechLinks.Count==2 && logitechWired.UnitKey=="046D:4093/12345678");
+                logitechRadio.UnitKey=logitechWired.UnitKey;
+                DeviceConnections.PreferWired(logitechLinks);
+                check("matching Logitech wireless model and unit ID share one card",logitechLinks.Count==1 && logitechLinks[0].Id=="logi-wireless" &&
+                    Receiver.DecodeLogitechUnit(logitechReport,"046D:C09B")==null);
+                var connections=new ConnectionNotices();
+                check("first scan is quiet",connections.Update(new[]{radioLuna}).Count==0);
+                check("cable changes the same mouse to USB",connections.Update(switched).SequenceEqual(new[]{"LunaFury TYPE33 已切换为 USB 有线"}));
+                check("repeated refresh stays quiet",connections.Update(switched).Count==0);
+                check("removing the cable changes the same mouse back to 2.4G",
+                    connections.Update(new[]{radioLuna}).SequenceEqual(new[]{"LunaFury TYPE33 已切换为 2.4G"}));
+                var sleepingLuna=new Device {Id=radioLuna.Id,Model=radioLuna.Model,Link="2.4G",Battery=65,RetainedBattery=true};
+                var oneMiss=connections.Update(new[]{sleepingLuna});
+                check("one missed wireless reading does not repeat a notification",oneMiss.Count==0 && connections.Update(new[]{radioLuna}).Count==0);
+                connections.Update(new[]{sleepingLuna});
+                connections.Update(new[]{sleepingLuna});
+                check("a mouse that comes back online notifies once",
+                    connections.Update(new[]{radioLuna}).SequenceEqual(new[]{"已连接 LunaFury TYPE33 · 2.4G"}));
+                var plugged=new Device {Id="test-usb",Link="USB",Name="测试手柄",Battery=0};
+                check("a new USB device is announced by name",connections.Update(new[]{radioLuna,plugged}).SequenceEqual(new[]{"已插入 测试手柄 · USB 有线"}));
                 var at=new DateTime(2026,11,18,12,0,0,DateTimeKind.Local);
                 string readings=Path.ChangeExtension(settings,"readings");
                 var newEntry=new Device {Id="tester-mouse",Link="2.4G"};
@@ -61,6 +137,11 @@ namespace LinkScope
                 var next=new Preferences(layout);
                 check("four chosen cards, theme, and coordinates survive restart",next.Peek(many).Select(d=>d.Id).SequenceEqual(many.Skip(7).Take(4).Select(d=>d.Id))
                     && next.Left==712&&next.Top==285&&next.CustomColor=="#EBE6F3"&&next.Eco);
+                next.Pins.Add(Preferences.Key(wiredLuna.WiredId));
+                next.Pins.Add(Preferences.Key(wiredLuna.Id));
+                next.MergeWiredCard(wiredLuna);
+                check("an old wired tray pin follows the unified mouse after restart",
+                    new Preferences(layout).Peek(switched).SequenceEqual(switched));
                 check("unconfigured tray defaults to at most four cards",new Preferences(layout+".absent").Peek(many).Count==4);
                 next.CustomColor="#91A8C8";next.Material=1;next.Save();
                 var custom=new Preferences(layout);

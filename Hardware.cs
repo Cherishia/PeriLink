@@ -12,7 +12,7 @@ namespace LinkScope
     internal sealed class Device
     {
         public string Id, Group, Name, Kind, Link, Source, Level, Note;
-        public string Model, Manufacturer;
+        public string Model, Manufacturer, WiredId, UnitKey, PairedModel;
         public int? Battery;
         public DateTime? BatteryReadAt;
         public bool RetainedBattery;
@@ -68,7 +68,7 @@ namespace LinkScope
             return fields.Length >= 3 ? string.Join("\\", fields.Take(3)) : start;
         }
 
-        internal static List<Device> Scan(List<RawDevice> raw, bool queryBle, ScanLog log)
+        internal static List<Device> Scan(List<RawDevice> raw, bool queryBle, ScanLog log, SavedProfiles savedProfiles=null)
         {
             var nodes = EnumerateNodes();
             log.NodeCount = nodes.Count;
@@ -87,17 +87,19 @@ namespace LinkScope
                 string group = address == null ? ((usb ?? node) == null ? item.Id : (usb ?? node).Id) : "BT:" + address;
                 string model = Model(usb == null ? item.Id : usb.Id);
                 string lunaName=LunaBattery.ModelName(model);
+                string rogName=item.Kind=="键盘" ? RogOmni.KeyboardName(model) : null;
                 if (lunaName!=null && item.Kind!="鼠标" || model=="1CA6:300A" && item.Kind!="键盘") continue;
                 string link = bluetooth != null ? "蓝牙" : usb != null || Has(item.Id, "VID_")
                     ? (IsReceiver(model, BestName(usb,node)) ? "2.4G" : "USB") : "系统 HID";
                 Device entry = devices.FirstOrDefault(d => d.Group == group && d.Kind == item.Kind);
                 if (entry == null)
                 {
-                    string name = lunaName ?? (model=="1CA6:300A" ? "AE64 Pro" : BestName(bluetooth, usb, node)) ?? Receiver.ProductName(item.Path);
+                    string name = lunaName ?? rogName ?? (model=="1CA6:300A" ? "AE64 Pro" : BestName(bluetooth, usb, node)) ?? Receiver.ProductName(item.Path);
                     if (string.IsNullOrWhiteSpace(name)) name = item.Kind + "设备" + (model==null ? "" : " · "+model);
                     entry = new Device { Id = group + "/" + item.Kind, Group = group, Link = link, Kind = item.Kind, Name = name, Model = model,
                         Manufacturer=usb==null ? null : usb.Manufacturer,
-                        BatteryCapable=lunaName!=null, Note = "Windows 输入接口" };
+                        BatteryCapable=lunaName!=null || rogName!=null || item.Kind=="鼠标" && RazerBattery.WiredModel(model)!=null,
+                        Note = "Windows 输入接口" };
                     if (link == "USB") entry.Note = "Windows 识别为 USB，可能是有线或未标明的接收器";
                     if (link == "2.4G") entry.Note = "USB 接收器已接入，型号和电量取决于接收器的上报能力";
                     if(RogOmni.IsReceiver(model))
@@ -142,6 +144,8 @@ namespace LinkScope
             catch (Exception e) { log.ReceiverError = e.GetType().Name; }
 
             MergeHandsFreeAudio(devices);
+            if(savedProfiles!=null) savedProfiles.Apply(devices);
+            DeviceConnections.PreferWired(devices);
             return devices.OrderByDescending(d => d.Connected).ThenBy(d => d.Link == "蓝牙" || d.Link == "2.4G" ? 0 : 1)
                 .ThenBy(d => d.Kind).ThenBy(d => d.Name).ToList();
         }
@@ -192,7 +196,8 @@ namespace LinkScope
 
         internal static bool IsReceiver(string model, string name)
         {
-            return Receiver.Slots(model) > 0 || RazerBattery.IsReceiver(model) || LunaBattery.IsReceiver(model) || RogOmni.IsReceiver(model) || model == "045E:02E6" || model == "045E:02FE"
+            return Receiver.Slots(model) > 0 || RazerBattery.IsReceiver(model) || LunaBattery.IsReceiver(model) || RogOmni.IsReceiver(model)
+                || RogOmni.IsDedicatedReceiver(model) || model == "045E:02E6" || model == "045E:02FE"
                 || new[] { "2.4g", "receiver", "wireless adapter", "dongle", "接收器", "无线适配器" }.Any(s => Has(name, s));
         }
 

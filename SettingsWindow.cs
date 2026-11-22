@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -14,6 +15,7 @@ namespace LinkScope
         private readonly Preferences prefs;
         private readonly Action change;
         private readonly Func<IList<Device>> getCards;
+        private readonly Func<AppUpdate,Task> installUpdate;
         private readonly SmoothScroll scroll;
         private readonly RoundedSurface surface;
         private readonly GlassLayer glass;
@@ -23,13 +25,18 @@ namespace LinkScope
         private readonly ContentControl page=new ContentControl();
         private readonly List<Button> navigation=new List<Button>();
         private CheckBox startup;
+        private Button updateButton;
+        private TextBlock updateNote;
+        private AppUpdate availableUpdate;
+        private string updateStatus="从 PeriLink 的 GitHub 正式发布检查新版。";
+        private bool updateBusy;
         private int selectedPage;
         private static readonly string[] Swatches=ThemeColorPicker.PresetHex;
         private static readonly string[] ColorNames={"银灰","红","暖橙","金","绿","青","蓝","紫","玫红"};
 
-        internal SettingsWindow(Window owner,Preferences preferences,Action changed,Func<IList<Device>> cards)
+        internal SettingsWindow(Window owner,Preferences preferences,Action changed,Func<IList<Device>> cards,Func<AppUpdate,Task> install)
         {
-            prefs=preferences;change=changed;getCards=cards;
+            prefs=preferences;change=changed;getCards=cards;installUpdate=install;
             Owner=owner;Title=Dashboard.AppName+" · 设置";WindowStartupLocation=WindowStartupLocation.CenterOwner;
             var work=DisplayPlacement.WorkSize(owner??this);
             Width=Math.Min(641,work.Width-12);Height=Math.Min(658,work.Height-12);
@@ -59,6 +66,7 @@ namespace LinkScope
             AddNav(nav,"外观","M12,3 V6 M12,18 V21 M3,12 H6 M18,12 H21 M6,6 L8,8 M16,16 L18,18 M6,18 L8,16 M16,8 L18,6 M12,8 A4,4 0 1 1 12,16 A4,4 0 1 1 12,8",ShowAppearance);
             AddNav(nav,"显示样式","M5,5 H19 Q21,5 21,7 V17 Q21,19 19,19 H5 Q3,19 3,17 V7 Q3,5 5,5 Z M7,12 H10 M13,12 H17",ShowDisplay);
             AddNav(nav,"托盘卡片","M4,5 H20 V17 H4 Z M4,13 H20 M7,15 H9",ShowCards);
+            AddNav(nav,"更新","M12,4 V15 M8,11 L12,15 L16,11 M5,16 V20 H19 V16",ShowUpdates);
             scroll=new SmoothScroll {Content=page,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
             layout.Children.Add(scroll);
             surface=new RoundedSurface(24);
@@ -80,7 +88,7 @@ namespace LinkScope
                 DockPanel.SetDock(sideRail,narrow?Dock.Top:Dock.Left);
                 nav.Orientation=narrow?Orientation.Horizontal:Orientation.Vertical;
                 sideRail.Margin=narrow?new Thickness(0,0,0,9):new Thickness(0,0,15,6);
-                foreach(var item in navigation) item.Width=narrow?84:112;
+                foreach(var item in navigation) item.Width=narrow?Math.Min(84,(ActualWidth-55)/navigation.Count):112;
             };
             DpiChanged+=delegate
             {
@@ -126,7 +134,56 @@ namespace LinkScope
             ApplyLook();
             if(selectedPage==0) ShowAppearance();
             else if(selectedPage==1) ShowDisplay();
-            else ShowCards();
+            else if(selectedPage==2) ShowCards();
+            else ShowUpdates();
+        }
+
+        private void ShowUpdates()
+        {
+            var content=PanelOf("更新");
+            content.Children.Add(Note("当前版本 "+AppUpdates.Current.ToString(3)));
+            updateNote=Note(updateStatus);
+            content.Children.Add(updateNote);
+            updateButton=ActionButton("检查更新",118);
+            updateButton.Click+=async delegate {await UpdateAction();};
+            content.Children.Add(updateButton);
+            SyncUpdateStatus();
+            page.Content=content;
+        }
+
+        private void SyncUpdateStatus()
+        {
+            updateNote.Text=updateStatus;
+            updateButton.Content=availableUpdate==null?"检查更新":"更新并重启";
+            updateButton.IsEnabled=!updateBusy;
+        }
+
+        private async Task UpdateAction()
+        {
+            if(updateBusy) return;
+            bool installing=availableUpdate!=null;
+            updateBusy=true;
+            updateStatus=installing?"正在下载并校验新版…":"正在检查新版…";
+            SyncUpdateStatus();
+            try
+            {
+                if(installing) await installUpdate(availableUpdate);
+                else
+                {
+                    availableUpdate=await AppUpdates.Check();
+                    updateStatus=availableUpdate==null?"暂无可用更新。":
+                        "发现 "+availableUpdate.Version.ToString(3)+"。更新后会自动重启。";
+                }
+            }
+            catch(Exception e)
+            {
+                updateStatus=(installing?"更新失败。":"检查失败。")+e.Message;
+            }
+            finally
+            {
+                updateBusy=false;
+                SyncUpdateStatus();
+            }
         }
         private void Commit()
         {

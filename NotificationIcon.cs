@@ -22,6 +22,7 @@ namespace LinkScope
         private string title=Dashboard.AppName+" · 设备电量";
         private readonly DispatcherTimer hoverDelay;
         internal event Action Clicked,DoubleClicked,RightClicked;
+        internal event Action DevicesChanged;
         internal event Action<Rectangle> HoverOpened;
         internal bool IsRegistered {get {return registered;}}
 
@@ -80,6 +81,7 @@ namespace LinkScope
         private IntPtr WndProc(IntPtr hwnd,int message,IntPtr wParam,IntPtr lParam,ref bool handled)
         {
             if(message==taskbarCreated) {Register();return IntPtr.Zero;}
+            if(message==0x0219 && wParam.ToInt64()==7) Post(DevicesChanged);
             if(message!=Callback) return IntPtr.Zero;
             int command=(int)(lParam.ToInt64()&0xffff);
             switch(command)

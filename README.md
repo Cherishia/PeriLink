@@ -17,6 +17,10 @@ PeriLink 是一款轻量的 Windows 无线外设电量工具。它把已适配�
 
 兼容标准蓝牙、部分 HID、XInput 和部分 Logitech、Razer、LunaFury、ROG 接收器。电量取决于型号和连接方式。配置和历史保存在程序旁的 `LinkScope.refresh`、`LinkScope.ui`、`LinkScope.readings` 和 `LinkScope.profiles`。
 
+支持的设备在 USB 和 2.4G 之间切换时共用电量卡片。合并规则覆盖 LunaFury TYPE33、LUNA33，部分雷蛇无线鼠标，ROG Azoth、Azoth X，以及能读到一致 HID++ 设备身份的罗技外设。共享接收器或同型号设备身份不明确时保留独立卡片。
+
+打开「设置 → 更新」可以检查 GitHub 正式发布。选择「更新并重启」后，PeriLink 会校验下载文件并在原目录更新，继续使用原有配置和历史记录。发布新版时，提高 `LinkScope.manifest` 中的版本，运行 `build.ps1`，并把 `PeriLink.exe` 上传到对应的稳定版标签（例如由 `0.18.3.0` 构建的文件对应 `v0.18.3`）。
+
 品牌素材用于标识设备。来源包括 [Simple Icons](https://github.com/simple-icons/simple-icons)、[LunaFury](https://www.lunafury.games/)、[Sony 字标](https://commons.wikimedia.org/wiki/File:Sony_logo.svg)、[ATK](https://www.atk.store/)、[VGN](https://vgnlab.com/)、[MCHOSE](https://www.mchose.store/)、[雷柏](https://www.rapoo.com/) 和 [GameSir](https://gamesir.com/)。
 
 在 Windows PowerShell 中运行 `.\build.ps1` 可生成 `PeriLink.exe`。使用 Windows 自带的 .NET Framework 编译器和 WPF。

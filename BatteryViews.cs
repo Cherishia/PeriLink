@@ -354,7 +354,7 @@ namespace LinkScope
             bool charging=d.Connected&&!d.RetainedBattery&&Hardware.Has(d.Source,"充电中");
             string state=!d.Connected?"离线":d.RetainedBattery?"保留读数":charging?"充电中":
                 !Tracking.HasBattery(d)?"待上报":"";
-            descriptor.Text=category+" · "+(state==""?d.Link:state);
+            descriptor.Text=category+" · "+(state=="" || state==d.Level ? d.Link : state);
             time.Text=Tracking.ReadTime(d,DateTime.Now);
             time.Visibility=time.Text.Length==0 ? Visibility.Collapsed : Visibility.Visible;
             bool glassMaterial=Preferences.CurrentMaterial==Look.GlassMaterial;

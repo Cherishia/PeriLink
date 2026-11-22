@@ -23,6 +23,11 @@ namespace LinkScope
         private static void Main(string[] args)
         {
             AppContext.SetSwitch("Switch.System.Windows.DoNotScaleForDpiChanges",false);
+            if(args.Length>0 && args[0]=="--apply-update")
+            {
+                AppUpdates.Apply(args);
+                return;
+            }
             if(args.Length==2 && args[0]=="--check")
             {
                 Diagnostics.Run(args[1]);
@@ -47,9 +52,14 @@ namespace LinkScope
                     {
                         app.MainWindow=view;
                         view.StartFromTray();
+                        AppUpdates.SignalReady(args);
                         app.Run();
                     }
-                    else app.Run(view);
+                    else
+                    {
+                        view.Loaded+=delegate { AppUpdates.SignalReady(args); };
+                        app.Run(view);
+                    }
                 }
                 finally { wake.Unregister(null); }
             }
@@ -92,6 +102,7 @@ namespace LinkScope
             RestoreGlyph=Geometry.Parse("M4,9 H15 V20 H4 Z M8,9 V5 H19 V16 H15");
         private readonly DispatcherTimer timer=new DispatcherTimer(DispatcherPriority.Background);
         private readonly DispatcherTimer hotplug=new DispatcherTimer(DispatcherPriority.Background);
+        private readonly DispatcherTimer connectionNoticeTimer=new DispatcherTimer(DispatcherPriority.Background);
         private readonly BatteryList list=new BatteryList(false);
         private readonly Grid root;
         private readonly GlassLayer glass;
@@ -100,6 +111,7 @@ namespace LinkScope
         private readonly RoundedSurface scene;
         private readonly Border settingsShade;
         private readonly ReadingHistory history;
+        private readonly ConnectionNotices connections=new ConnectionNotices();
         private readonly Preferences preferences;
         private readonly SavedProfiles savedProfiles;
         private readonly TextBlock title,count,lastUpdate,intervalLabel,brandTitle;
@@ -113,11 +125,12 @@ namespace LinkScope
         private SettingsWindow settingsWindow;
         private System.Drawing.Icon trayIcon;
         private TrayFlyout flyout;
+        private ConnectionPopup connectionPopup;
         private HwndSource hwnd;
         private int seconds;
-        private bool updating,closed,allowExit;
+        private bool updating,installing,closed,allowExit;
         private DateTime suppressSingleUntil;
-        private string trayReadingKey;
+        private string trayReadingKey, scanStatus="";
 
         internal Dashboard(string path)
         {
@@ -274,6 +287,7 @@ namespace LinkScope
             bottom.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });
             bottom.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             lastUpdate=Text("",11.75,Muted);
+            lastUpdate.TextTrimming=TextTrimming.CharacterEllipsis;
             bottom.Children.Add(lastUpdate);
             github=ButtonFor("",Brushes.Transparent,Muted,68);
             github.Height=24;
@@ -311,7 +325,7 @@ namespace LinkScope
                 controls.Margin=new Thickness(4,shortWindow?5:10,4,0);
                 controls.Padding=new Thickness(0,shortWindow?2:4,0,shortWindow?2:4);
                 foreach(var preset in presets) preset.Height=shortWindow?23:30;
-                lastUpdate.Visibility=shortWindow?Visibility.Collapsed:Visibility.Visible;
+                lastUpdate.Visibility=shortWindow&&!connectionNoticeTimer.IsEnabled?Visibility.Collapsed:Visibility.Visible;
                 github.Height=shortWindow?20:24;
                 bottom.Margin=new Thickness(8,shortWindow?2:7,5,0);
                 fitHeader();
@@ -319,7 +333,21 @@ namespace LinkScope
 
             timer.Tick+=async delegate { await Refresh(); };
             hotplug.Interval=TimeSpan.FromMilliseconds(1000);
-            hotplug.Tick+=async delegate { hotplug.Stop();await Refresh(); };
+            hotplug.Tick+=async delegate
+            {
+                if(updating) return;
+                hotplug.Stop();
+                await Refresh();
+            };
+            connectionNoticeTimer.Interval=TimeSpan.FromSeconds(5);
+            connectionNoticeTimer.Tick+=delegate
+            {
+                connectionNoticeTimer.Stop();
+                lastUpdate.Text=scanStatus;
+                lastUpdate.ToolTip=null;
+                lastUpdate.Foreground=Muted;
+                lastUpdate.Visibility=ActualHeight<450?Visibility.Collapsed:Visibility.Visible;
+            };
             ApplyPreferences();
             IsVisibleChanged+=delegate { AdjustInterval();if(!IsVisible) EditMainCards(false); };
             PreviewKeyDown+=delegate(object sender,System.Windows.Input.KeyEventArgs e)
@@ -372,8 +400,6 @@ namespace LinkScope
                     if(hit!=0) {handled=true;return new IntPtr(hit);}
                 }
             }
-            if(message==0x219 && w==new IntPtr(7) && !closed)
-            { hotplug.Stop();hotplug.Start(); }
             if(message==0x001A&&!closed&&preferences.ThemeMode==0) OnDesktopPreferenceChanged(null,null);
             return IntPtr.Zero;
         }
@@ -406,6 +432,8 @@ namespace LinkScope
             closed=true;
             timer.Stop();
             hotplug.Stop();
+            connectionNoticeTimer.Stop();
+            if(connectionPopup!=null) connectionPopup.Close();
             SystemEvents.UserPreferenceChanged-=OnDesktopPreferenceChanged;
             if(hwnd!=null && !hwnd.IsDisposed) hwnd.RemoveHook(OnMessage);
             if(flyout!=null) flyout.Shutdown();
@@ -450,7 +478,7 @@ namespace LinkScope
         private void OpenSettings()
         {
             if(settingsWindow!=null) {settingsWindow.Activate();return;}
-            settingsWindow=new SettingsWindow(this,preferences,ApplyPreferences,()=>devices);
+            settingsWindow=new SettingsWindow(this,preferences,ApplyPreferences,()=>devices,InstallUpdate);
             ShadeSettings(true);
             try {settingsWindow.ShowDialog();}
             finally {settingsWindow=null;ShadeSettings(false);}
@@ -472,7 +500,8 @@ namespace LinkScope
             scene.Background=theme.Backdrop(preferences.Material);
             scene.Edge=theme.Line;
             Foreground=title.Foreground=intervalLabel.Foreground=brandTitle.Foreground=theme.Ink;
-            count.Foreground=lastUpdate.Foreground=theme.Muted;
+            count.Foreground=theme.Muted;
+            lastUpdate.Foreground=connectionNoticeTimer.IsEnabled?theme.Ink:theme.Muted;
             hero.Background=controls.Background=preferences.Material==Look.GlassMaterial
                 ?Look.Paint(Look.Alpha(theme.Card.Color,222)):theme.Card;
             hero.BorderBrush=controls.BorderBrush=theme.Line;
@@ -548,7 +577,7 @@ namespace LinkScope
 
         private async Task Refresh()
         {
-            if(updating || closed) return;
+            if(updating || installing || closed) return;
             updating=true;
             refresh.IsEnabled=false;
             refresh.Content="读取中…";
@@ -557,8 +586,7 @@ namespace LinkScope
             {
                 var result=await Task.Run(()=>
                 {
-                    var found=Hardware.Scan(Input.Catalog(),true,scan);
-                    savedProfiles.Apply(found);
+                    var found=Hardware.Scan(Input.Catalog(),true,scan,savedProfiles);
                     var readAt=DateTime.Now;
                     history.Attach(found,readAt);
                     return new {Devices=found,At=readAt};
@@ -569,18 +597,20 @@ namespace LinkScope
                 devices=result.Devices.Where(Tracking.Show).GroupBy(d=>d.Id,StringComparer.Ordinal).Select(g=>g.First())
                     .OrderBy(d=>order.ContainsKey(d.Id) ? order[d.Id] : int.MaxValue)
                     .ThenBy(d=>d.Link=="2.4G" && d.Kind=="鼠标" ? 0 : d.Battery.HasValue ? 1 : 2).ToList();
+                foreach(var device in devices.Where(d=>d.WiredId!=null)) preferences.MergeWiredCard(device);
                 count.Text=devices.Count+" 台电池设备";
-                lastUpdate.Text="扫描于 "+result.At.ToString("HH:mm:ss");
+                SetScanStatus("扫描于 "+result.At.ToString("HH:mm:ss"));
                 ShowMainCards(IsVisible);
                 RefreshFlyout();
                 UpdateTray();
+                ShowConnectionNotices(connections.Update(devices));
             }
             catch(Exception)
             {
                 if(!closed)
                 {
                     count.Text=devices.Count==0 ? "设备读取失败" : count.Text;
-                    lastUpdate.Text="读取失败，点击刷新重试";
+                    SetScanStatus("读取失败，点击刷新重试");
                     ShowMainCards(false);
                 }
             }
@@ -593,6 +623,46 @@ namespace LinkScope
                     refresh.IsEnabled=true;
                 }
             }
+        }
+
+        private void SetScanStatus(string text)
+        {
+            scanStatus=text;
+            if(!connectionNoticeTimer.IsEnabled) lastUpdate.Text=text;
+        }
+
+        private void ShowConnectionNotices(IList<string> notices)
+        {
+            if(notices.Count==0) return;
+            string details=string.Join("\n",notices.Take(3))+(notices.Count>3?"\n另外 "+(notices.Count-3)+" 台设备":"");
+            lastUpdate.Text=notices[0]+(notices.Count>1?" · 另有 "+(notices.Count-1)+" 台":"");
+            lastUpdate.ToolTip=notices.Count>1?details:null;
+            lastUpdate.Foreground=Ink;
+            lastUpdate.Visibility=Visibility.Visible;
+            connectionNoticeTimer.Stop();
+            connectionNoticeTimer.Start();
+            if(!IsActive || WindowState==WindowState.Minimized)
+            {
+                if(connectionPopup!=null) connectionPopup.Close();
+                var popup=new ConnectionPopup(notices);
+                connectionPopup=popup;
+                popup.Closed+=delegate {if(connectionPopup==popup) connectionPopup=null;};
+                popup.ShowAt(tray==null?DisplayPlacement.ScreenFor(this):Forms.Screen.FromRectangle(tray.Bounds()));
+            }
+        }
+
+        private async Task InstallUpdate(AppUpdate update)
+        {
+            await AppUpdates.Stage(update);
+            installing=true;
+            try
+            {
+                while(updating && !closed) await Task.Delay(40);
+                if(closed) return;
+                AppUpdates.StartWorker(update,!IsVisible || WindowState==WindowState.Minimized);
+                Shutdown();
+            }
+            finally { installing=false; }
         }
 
         internal void StartFromTray()
@@ -613,6 +683,7 @@ namespace LinkScope
             tray.RightClicked+=OnTrayRight;
             tray.DoubleClicked+=OnTrayDouble;
             tray.HoverOpened+=PreviewTray;
+            tray.DevicesChanged+=delegate { if(!closed) {hotplug.Stop();hotplug.Start();} };
             if(flyout==null) flyout=new TrayFlyout(Refresh,Reopen,preferences);
             RefreshFlyout();
             UpdateTray();
