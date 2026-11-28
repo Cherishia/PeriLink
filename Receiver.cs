@@ -44,14 +44,20 @@ namespace LinkScope
                         ushort usage = U16(caps,0), page = U16(caps,2);
                         string group=model==null ? null : Hardware.PeripheralIdFromInterface(path,model);
                         var matching = devices.Where(d=>d.Model==model && group!=null && string.Equals(d.Group,group,StringComparison.OrdinalIgnoreCase)).ToList();
-                        if(RogOmni.IsReceiver(model) && group!=null && matching.Count!=0 &&
-                            (page==0xff02 || page==0xff00) && U16(caps,4)==64 && U16(caps,6)==64)
+                        bool omni=RogOmni.IsReceiver(model);
+                        // OMNI vendor reports belong to the physical USB instance, even if its input interfaces are missing.
+                        if(omni && group!=null && !Hardware.Has(group,"&MI_") &&
+                            (page==0xff02 || page==0xff00 || page==0xff01 && Hardware.Has(path,"mi_02&col03")) &&
+                            U16(caps,4)==64 && U16(caps,6)==64)
                         {
                             RogOmni.Channels channels;
                             if(!rogChannels.TryGetValue(group,out channels)) rogChannels[group]=channels=new RogOmni.Channels();
-                            if(page==0xff02) channels.Pairing=path; else channels.Keyboard=path;
+                            if(page==0xff02) channels.Pairing=path;
+                            else if(page==0xff00) channels.Keyboard=path;
+                            else channels.Mouse=path;
+                            continue;
                         }
-                        if (matching.Count == 0 && model != null)
+                        if (matching.Count == 0 && model != null && !omni)
                         {
                             // Use a VID/PID match only when exactly one physical device exposes that model.
                             var modelMatches=devices.Where(d=>d.Model == model).ToList();
@@ -66,7 +72,7 @@ namespace LinkScope
                                 controller = new Device { Id=group+"/手柄", Group=group, Kind="手柄", Link="USB", Model=model };
                                 devices.Add(controller);
                             }
-                            controller.Name = "GameSir Nova 2 Lite";
+                            controller.Name = GameSirBattery.Nova2LiteName;
                             controller.Manufacturer = "GameSir";
                             controller.BatteryCapable = true;
                             if (!Tracking.HasBattery(controller)) GameSirBattery.ReadNova2Lite(path, controller);

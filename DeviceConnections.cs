@@ -48,7 +48,7 @@ namespace LinkScope
 
         private static void Merge(List<Device> devices,Device cable,Device receiver)
         {
-            cable.WiredId=cable.Id;
+            cable.AlternateId=cable.Id;
             cable.Id=receiver.Id;
             cable.BatteryCapable=true;
             if(!Tracking.HasBattery(cable) && Tracking.HasBattery(receiver))

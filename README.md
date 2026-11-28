@@ -17,7 +17,11 @@ PeriLink 是一款轻量的 Windows 无线外设电量工具。它把已适配�
 
 兼容标准蓝牙、部分 HID、XInput 和部分 Logitech、Razer、LunaFury、ROG 接收器。电量取决于型号和连接方式。配置和历史保存在程序旁的 `LinkScope.refresh`、`LinkScope.ui`、`LinkScope.readings` 和 `LinkScope.profiles`。
 
+ROG Harpe Ace Mini（龙鳞 Ace Mini）通过 ROG OMNI 的 2.4G 配对记录识别，支持读取电量和充电状态。连接多只 ROG OMNI 接收器时，PeriLink 分别读取每只接收器上的配对设备。
+
 支持的设备在 USB 和 2.4G 之间切换时共用电量卡片。合并规则覆盖 LunaFury TYPE33、LUNA33，部分雷蛇无线鼠标，ROG Azoth、Azoth X，以及能读到一致 HID++ 设备身份的罗技外设。共享接收器或同型号设备身份不明确时保留独立卡片。
+
+PeriLink 通过蓝牙固件标识识别采用 Xbox 兼容名称的 GameSir Nova 2 Lite。检测到唯一匹配的 USB 和蓝牙配对记录时，自动沿用同一张设备卡片，切换连接方式时更新卡片上的连接图标。
 
 打开「设置 → 更新」可以检查 GitHub 正式发布。选择「更新并重启」后，PeriLink 会校验下载文件并在原目录更新，继续使用原有配置和历史记录。发布新版时，提高 `LinkScope.manifest` 中的版本，运行 `build.ps1`，并把 `PeriLink.exe` 上传到对应的稳定版标签（例如由 `0.18.3.0` 构建的文件对应 `v0.18.3`）。
 

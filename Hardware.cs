@@ -12,7 +12,7 @@ namespace LinkScope
     internal sealed class Device
     {
         public string Id, Group, Name, Kind, Link, Source, Level, Note;
-        public string Model, Manufacturer, WiredId, UnitKey, PairedModel;
+        public string Model, Manufacturer, AlternateId, UnitKey, PairedModel;
         public int? Battery;
         public DateTime? BatteryReadAt;
         public bool RetainedBattery;
@@ -142,6 +142,8 @@ namespace LinkScope
             AddPads(devices);
             try { Receiver.Scan(devices); }
             catch (Exception e) { log.ReceiverError = e.GetType().Name; }
+            // Only confirmed peripherals may use a receiver slot's saved battery history.
+            devices.RemoveAll(RogOmni.IsUnpairedInterface);
 
             MergeHandsFreeAudio(devices);
             if(savedProfiles!=null) savedProfiles.Apply(devices);

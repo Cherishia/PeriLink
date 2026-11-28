@@ -6,6 +6,7 @@ namespace LinkScope
     internal static class GameSirBattery
     {
         internal const string Nova2LiteUsb = "3537:100F";
+        internal const string Nova2LiteName = "GameSir Nova 2 Lite";
         private const int ReportLength = 65;
         private const int BatteryOffset = 19;
 

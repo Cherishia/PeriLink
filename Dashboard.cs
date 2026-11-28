@@ -111,6 +111,7 @@ namespace LinkScope
         private readonly RoundedSurface scene;
         private readonly Border settingsShade;
         private readonly ReadingHistory history;
+        private readonly GameSirLinks gameSirLinks;
         private readonly ConnectionNotices connections=new ConnectionNotices();
         private readonly Preferences preferences;
         private readonly SavedProfiles savedProfiles;
@@ -139,6 +140,7 @@ namespace LinkScope
             preferences.Use();
             savedProfiles=new SavedProfiles(Path.ChangeExtension(path,"profiles"));
             history=new ReadingHistory(Path.ChangeExtension(path,"readings"));
+            gameSirLinks=new GameSirLinks(Path.ChangeExtension(path,"links"));
             seconds=RefreshSettings.Load(path);
             Title=WindowTitle;
             Width=669;Height=514;MinWidth=371;MinHeight=425;
@@ -587,6 +589,7 @@ namespace LinkScope
                 var result=await Task.Run(()=>
                 {
                     var found=Hardware.Scan(Input.Catalog(),true,scan,savedProfiles);
+                    gameSirLinks.RecognizeAndApply(found);
                     var readAt=DateTime.Now;
                     history.Attach(found,readAt);
                     return new {Devices=found,At=readAt};
@@ -597,7 +600,7 @@ namespace LinkScope
                 devices=result.Devices.Where(Tracking.Show).GroupBy(d=>d.Id,StringComparer.Ordinal).Select(g=>g.First())
                     .OrderBy(d=>order.ContainsKey(d.Id) ? order[d.Id] : int.MaxValue)
                     .ThenBy(d=>d.Link=="2.4G" && d.Kind=="鼠标" ? 0 : d.Battery.HasValue ? 1 : 2).ToList();
-                foreach(var device in devices.Where(d=>d.WiredId!=null)) preferences.MergeWiredCard(device);
+                foreach(var device in devices.Where(d=>d.AlternateId!=null)) preferences.MergeCardPreferences(device);
                 count.Text=devices.Count+" 台电池设备";
                 SetScanStatus("扫描于 "+result.At.ToString("HH:mm:ss"));
                 ShowMainCards(IsVisible);

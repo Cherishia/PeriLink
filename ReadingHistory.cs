@@ -82,11 +82,11 @@ namespace LinkScope
                     }
                     Reading old;
                     entries.TryGetValue(key,out old);
-                    if(d.WiredId!=null)
+                    if(d.AlternateId!=null)
                     {
-                        string wiredKey=BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(d.WiredId.ToUpperInvariant()))).Replace("-","");
-                        Reading wired;
-                        if(entries.TryGetValue(wiredKey,out wired) && (old==null || wired.Utc>old.Utc)) old=wired;
+                        string alternateKey=BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(d.AlternateId.ToUpperInvariant()))).Replace("-","");
+                        Reading alternate;
+                        if(entries.TryGetValue(alternateKey,out alternate) && (old==null || alternate.Utc>old.Utc)) old=alternate;
                     }
                     if(old==null) continue;
                     int percent;

@@ -32,6 +32,7 @@ namespace LinkScope
                     Hardware.BluetoothAddress(@"BTHENUM\{0000111e-0000-1000-8000-00805f9b34fb}\8&ABC&0&112233445566_C00000000")=="112233445566");
                 var live=Hardware.Scan(Input.Catalog(),true,new ScanLog());
                 check("live scan returns a list",live!=null);
+                check("live scan returns only confirmed OMNI devices",live.All(d=>!RogOmni.IsUnpairedInterface(d)));
                 if(live.Any(d=>d.Model=="373E:0084"))
                     check("TYPE33 listed as 2.4G",live.Any(d=>d.Name=="LunaFury TYPE33" && d.Kind=="鼠标" && d.Link=="2.4G"));
                 foreach(var d in live) lines.Add((Tracking.Show(d)?"visible ":"hidden ")+d.Name+" / "+d.Link+" / "+d.Power);
@@ -57,7 +58,7 @@ namespace LinkScope
                 var switched=new List<Device>{radioLuna,wiredLuna};
                 DeviceConnections.PreferWired(switched);
                 check("wired LunaFury replaces an idle receiver with the same card identity",switched.Count==1 &&
-                    switched[0]==wiredLuna && wiredLuna.Id=="radio-luna" && wiredLuna.WiredId=="wired-luna" && wiredLuna.Battery==100);
+                    switched[0]==wiredLuna && wiredLuna.Id=="radio-luna" && wiredLuna.AlternateId=="wired-luna" && wiredLuna.Battery==100);
                 radioLuna.Battery=65;
                 var otherLuna=new Device {Id="another-luna",Model="373E:0054",Kind="鼠标",Link="USB",Battery=72};
                 var twoMice=new List<Device>{radioLuna,otherLuna};
@@ -90,6 +91,39 @@ namespace LinkScope
                 omni.PairedModel="0B05:1A83";
                 DeviceConnections.PreferWired(rogLinks);
                 check("only confirmed Azoth pairing shares the USB card",rogLinks.Count==1 && rogLinks[0].Id=="omni");
+                byte[] omniPairing={1,0xa0,0,2,0,0x65,0x1b,3,5,0x85,0x1a,0,0};
+                check("OMNI identifies Harpe Ace Mini and Azoth in the same pair list",
+                    RogOmni.HasPairedProduct(omniPairing,0x1b65) && RogOmni.HasPairedProduct(omniPairing,0x1a85) &&
+                    !RogOmni.HasPairedProduct(omniPairing,0x1b63));
+                var harpe=new Device {Kind="鼠标",Link="2.4G",Model="0B05:1ACE"};
+                var harpeReply=new byte[]{3,0x12,7,0,0,0,1,0x14,0x4c,0x0f,0};
+                RogOmni.ApplyHarpeBattery(harpe,harpeReply);
+                check("idle OMNI response does not create a zero-percent reading",harpe.Battery==null);
+                harpeReply[5]=73;
+                RogOmni.ApplyHarpeBattery(harpe,harpeReply);
+                check("Harpe Ace Mini reports the percent from the OMNI mouse channel",
+                    harpe.Battery==73 && Tracking.Show(harpe) && harpe.Source=="ROG OMNI 电量");
+                harpeReply[5]=74;
+                harpeReply[10]=1;
+                RogOmni.ApplyHarpeBattery(harpe,harpeReply);
+                check("Harpe Ace Mini reports charging with the actual level",harpe.Battery==74 && Hardware.Has(harpe.Source,"充电中"));
+                const string mouseReceiver=@"USB\VID_0B05&PID_1ACE\mouse", keyReceiver=@"USB\VID_0B05&PID_1ACE\keys";
+                var existingMouse=new Device {Id=mouseReceiver+"/鼠标",Group=mouseReceiver,Kind="鼠标",Link="2.4G",Model="0B05:1ACE"};
+                existingMouse.Inputs.Add(new IntPtr(1));
+                var dualOmni=new List<Device>{existingMouse};
+                var mouseChannels=new RogOmni.Channels {Pairing="mouse-pairing",Mouse="mouse-battery"};
+                var keyboardChannels=new RogOmni.Channels {Pairing="keys-pairing",Keyboard="keys-battery"};
+                RogOmni.Apply(dualOmni,keyReceiver,keyboardChannels,(endpoint,report,command,parameter)=>null);
+                var omniFrames=new Dictionary<string,byte[]> {
+                    {"mouse-pairing",new byte[]{1,0xa0,0,1,0,0x65,0x1b,3,5}}, {"mouse-battery",harpeReply},
+                    {"keys-pairing",new byte[]{1,0xa0,0,1,0,0x85,0x1a,2,4}},
+                    {"keys-battery",new byte[]{2,0x12,1,0,0,0,49,0,0,0}} };
+                RogOmni.Apply(dualOmni,mouseReceiver,mouseChannels,(endpoint,report,command,parameter)=>omniFrames[endpoint]);
+                RogOmni.Apply(dualOmni,keyReceiver,keyboardChannels,(endpoint,report,command,parameter)=>omniFrames[endpoint]);
+                check("two identical OMNI models use independent cards even without a Raw Input keyboard entry",
+                    dualOmni.Count==2 && existingMouse.Name==RogOmni.HarpeAceMiniName && existingMouse.Battery==74 &&
+                    existingMouse.Inputs.Contains(new IntPtr(1)) && dualOmni.Any(d=>d.Id==keyReceiver+"/键盘" &&
+                    d.Name==RogOmni.AzothName && d.Battery==49 && d.Group==keyReceiver && Tracking.Show(d)));
                 var logitechReport=new byte[]{0x11,0xff,7,0x0d,1,0x12,0x34,0x56,0x78,0,0x0c,0x40,0x93,0xc0,0x94,0,0,0,0,0};
                 var logitechWired=new Device {Id="logi-usb",Link="USB",Kind="鼠标",Model="046D:C094",
                     UnitKey=Receiver.DecodeLogitechUnit(logitechReport,"046D:C094"),Battery=77};
@@ -101,6 +135,40 @@ namespace LinkScope
                 DeviceConnections.PreferWired(logitechLinks);
                 check("matching Logitech wireless model and unit ID share one card",logitechLinks.Count==1 && logitechLinks[0].Id=="logi-wireless" &&
                     Receiver.DecodeLogitechUnit(logitechReport,"046D:C09B")==null);
+                var nova=new Device {Id=@"USB\VID_3537&PID_100F\example/手柄",Kind="手柄",Link="USB",Model=GameSirBattery.Nova2LiteUsb};
+                var compatible=new Device {Id="BT:001122334455",Group="BT:001122334455",Kind="手柄",Link="蓝牙",
+                    Name="Xbox Wireless Controller",Connected=false};
+                var xbox=new Device {Id="BT:112233445566",Group="BT:112233445566",Kind="手柄",Link="蓝牙",Name=compatible.Name};
+                var linkedCards=new List<Device>{nova,compatible,xbox};
+                byte[] pnpRecord={0x35,0x1e,0x09,0x00,0x01,0x35,0x03,0x19,0x12,0x00,
+                    0x09,0x02,0x01,0x09,0x04,0x5e,0x09,0x02,0x02,0x09,0x02,0xe0,
+                    0x09,0x02,0x03,0x09,0x01,0x1b,0x09,0x02,0x05,0x09,0x00,0x02};
+                pnpRecord[1]=(byte)(pnpRecord.Length-2);
+                check("Nova 2 Lite's Bluetooth Device ID identifies it in Xbox mode",GameSirBluetooth.MatchesDeviceIdRecord(pnpRecord));
+                check("truncated SDP record is rejected",!GameSirBluetooth.MatchesDeviceIdRecord(pnpRecord.Take(pnpRecord.Length-1).ToArray()));
+                pnpRecord[27]=0x12;
+                check("other Xbox firmware stays unidentified",!GameSirBluetooth.MatchesDeviceIdRecord(pnpRecord));
+                string linksPath=path+"."+Guid.NewGuid().ToString("N")+".links";
+                var links=new GameSirLinks(linksPath);
+                links.RecognizeAndApply(linkedCards,address=>false);
+                check("unconfirmed Xbox names are never merged automatically",linkedCards.Count==3);
+                var playing=new Device {Id=compatible.Group+"/手柄",Group=compatible.Group,Name=compatible.Name,Link="蓝牙",Kind="手柄"};
+                Func<string,bool> matchNova=address=>address=="001122334455";
+                var activeCards=new List<Device>{nova,playing,xbox};
+                links.RecognizeAndApply(activeCards,matchNova);
+                check("active units stay separate and standalone Bluetooth shows the real model",
+                    activeCards.Count==3 && !File.Exists(linksPath) && playing.Id==compatible.Group && playing.Name==GameSirBattery.Nova2LiteName);
+                links.RecognizeAndApply(linkedCards,matchNova);
+                check("recognized GameSir automatically pairs while the separate Xbox stays visible",
+                    linkedCards.Count==2 && linkedCards.Contains(xbox) && File.Exists(linksPath) &&
+                    nova.Name==GameSirBattery.Nova2LiteName && nova.Link=="USB");
+                var reopenedLinks=new GameSirLinks(linksPath);
+                var wirelessCards=new List<Device>{playing,xbox};
+                reopenedLinks.RecognizeAndApply(wirelessCards,address=>false);
+                check("active Bluetooth GameSir keeps the wired card ID and real link after restart",
+                    wirelessCards.Count==2 && playing.Id==nova.Id && playing.Name==GameSirBattery.Nova2LiteName && playing.Link=="蓝牙" &&
+                    playing.Battery==null && playing.Connected);
+                if(File.Exists(linksPath)) File.Delete(linksPath);
                 var connections=new ConnectionNotices();
                 check("first scan is quiet",connections.Update(new[]{radioLuna}).Count==0);
                 check("cable changes the same mouse to USB",connections.Update(switched).SequenceEqual(new[]{"LunaFury TYPE33 已切换为 USB 有线"}));
@@ -124,6 +192,18 @@ namespace LinkScope
                 new ReadingHistory(readings).Attach(new List<Device>{newEntry},at.AddMinutes(1));
                 check("retained reading keeps original time after restart",newEntry.RetainedBattery && newEntry.Battery==92
                     && newEntry.BatteryReadAt==at && Tracking.ReadTime(newEntry,at)=="上次读取 12:00:00");
+                var dormantAzoth=dualOmni.Single(d=>d.Kind=="键盘");
+                var staleOmniKeyboard=new Device {Id=mouseReceiver+"/键盘",Group=mouseReceiver,Model="0B05:1ACE",
+                    Kind="键盘",Link="2.4G",Battery=89};
+                history.Attach(new List<Device>{staleOmniKeyboard,dormantAzoth},at);
+                staleOmniKeyboard.Battery=null;
+                dormantAzoth.Battery=null;
+                var omnicards=new List<Device>{staleOmniKeyboard,dormantAzoth,existingMouse};
+                omnicards.RemoveAll(RogOmni.IsUnpairedInterface);
+                new ReadingHistory(readings).Attach(omnicards,at.AddMinutes(1));
+                check("old keyboard readings restore only on a confirmed pairing, never an OMNI interface",
+                    omnicards.Count==2 && !omnicards.Contains(staleOmniKeyboard) && staleOmniKeyboard.Battery==null &&
+                    dormantAzoth.Battery==49 && dormantAzoth.RetainedBattery && dormantAzoth.BatteryReadAt==at && Tracking.Show(dormantAzoth));
                 var many=Enumerable.Range(0,24).Select(i=>new Device {Id="demo-"+i,Name="Device "+i,Kind="鼠标",Link="蓝牙",Battery=i}).ToList();
                 var tray=new BatteryList(true);
                 tray.Update(many,false);
@@ -137,9 +217,9 @@ namespace LinkScope
                 var next=new Preferences(layout);
                 check("four chosen cards, theme, and coordinates survive restart",next.Peek(many).Select(d=>d.Id).SequenceEqual(many.Skip(7).Take(4).Select(d=>d.Id))
                     && next.Left==712&&next.Top==285&&next.CustomColor=="#EBE6F3"&&next.Eco);
-                next.Pins.Add(Preferences.Key(wiredLuna.WiredId));
+                next.Pins.Add(Preferences.Key(wiredLuna.AlternateId));
                 next.Pins.Add(Preferences.Key(wiredLuna.Id));
-                next.MergeWiredCard(wiredLuna);
+                next.MergeCardPreferences(wiredLuna);
                 check("an old wired tray pin follows the unified mouse after restart",
                     new Preferences(layout).Peek(switched).SequenceEqual(switched));
                 check("unconfigured tray defaults to at most four cards",new Preferences(layout+".absent").Peek(many).Count==4);
@@ -271,6 +351,7 @@ namespace LinkScope
                 if(File.Exists(settings)) File.Delete(settings);
                 string readings=Path.ChangeExtension(settings,"readings");
                 if(File.Exists(readings)) File.Delete(readings);
+                if(File.Exists(path+".links")) File.Delete(path+".links");
             }
             lines.Add("Failures "+failures);
             File.WriteAllLines(path,lines);

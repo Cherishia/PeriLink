@@ -19,8 +19,8 @@ namespace LinkScope
                 Device previous=null;
                 if(online!=null && !online.TryGetValue(device.Id,out previous))
                 {
-                    if(device.WiredId!=null) online.TryGetValue(device.WiredId,out previous);
-                    else previous=online.Values.FirstOrDefault(d=>d.WiredId==device.Id);
+                    if(device.AlternateId!=null) online.TryGetValue(device.AlternateId,out previous);
+                    else previous=online.Values.FirstOrDefault(d=>d.AlternateId==device.Id);
                 }
                 if(device.Link=="2.4G" && LunaBattery.IsReceiver(device.Model) &&
                     (!Tracking.HasBattery(device) || device.RetainedBattery))

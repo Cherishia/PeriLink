@@ -236,20 +236,20 @@ namespace LinkScope
         internal bool SetMainVisible(string id,bool visible)
         {return visible?mainHidden.Remove(Key(id)):mainHidden.Add(Key(id));}
 
-        internal void MergeWiredCard(Device device)
+        internal void MergeCardPreferences(Device device)
         {
-            string wired=Key(device.WiredId), receiver=Key(device.Id);
+            string alternate=Key(device.AlternateId), canonical=Key(device.Id);
             bool changed=false;
-            int index=mainOrder.IndexOf(wired);
+            int index=mainOrder.IndexOf(alternate);
             if(index>=0)
             {
-                if(mainOrder.Contains(receiver)) mainOrder.RemoveAt(index);
-                else mainOrder[index]=receiver;
+                if(mainOrder.Contains(canonical)) mainOrder.RemoveAt(index);
+                else mainOrder[index]=canonical;
                 changed=true;
             }
-            if(Pins!=null && Pins.Contains(wired))
+            if(Pins!=null && Pins.Contains(alternate))
             {
-                Pins=Pins.Select(key=>key==wired?receiver:key).Distinct(StringComparer.Ordinal).ToList();
+                Pins=Pins.Select(key=>key==alternate?canonical:key).Distinct(StringComparer.Ordinal).ToList();
                 changed=true;
             }
             if(changed) Save();
